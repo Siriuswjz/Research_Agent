@@ -1,6 +1,8 @@
 # Research Agent
 
-基于 DeepSeek + arXiv + Semantic Scholar 的科研文献综述 Agent，自动检索、下载、解析论文全文，生成结构化中文综述。
+基于 DeepSeek + arXiv + Semantic Scholar 的科研助手：
+- **综述模式**：给定研究问题，自动检索、下载、解析论文，生成结构化中文综述
+- **精读模式**：对单篇论文做 6 节深度分析（背景/方法/实验/结果/局限/可借鉴点）
 
 ## 快速开始
 
@@ -10,35 +12,52 @@ conda activate research_agent
 pip install -r requirements.txt
 
 export DEEPSEEK_API_KEY="your-key"
-python main.py
+python main.py                       # 生成综述
+python read.py                       # 精读单篇（交互选择）
 ```
 
 可选环境变量：`S2_API_KEY`（Semantic Scholar 提速）、`HTTP_PROXY`（代理）。
+
+### 精读模式
+
+```bash
+python read.py                       # 列出最近综述的论文，选编号
+python read.py 7                     # 直接精读综述里的第 7 篇
+python read.py 2301.12345            # arxiv ID
+python read.py https://...           # 任意 PDF URL
+python read.py ./paper.pdf           # 本地 PDF
+```
+
+默认用 PyMuPDF 解析。要更高质量装 marker：`pip install marker-pdf`（首次跑下 ~5GB 模型）。
 
 ## 项目结构
 
 ```
 research_agent/
-├── main.py                          # 入口：串联四个 Agent + 报告存档
+├── main.py                          # 综述入口：串联四个 Agent
+├── read.py                          # 精读入口：单篇深度分析
 ├── config.py                        # 所有配置（API key、缓存、代理、全文上限等）
 ├── agents/
 │   ├── llm.py                       # LLM 客户端（单例 + 重试 + 缓存）
 │   ├── planner.py                   # 领域识别 + 关键词拆解 + 反馈补搜
 │   ├── search.py                    # 多源检索 + 去重 + Top N 全文下载
 │   ├── writer.py                    # 结构化中文综述生成
-│   └── critic.py                    # 审查初稿 → 修订
+│   ├── critic.py                    # 审查初稿 → 修订
+│   └── deep_reader.py               # 单篇论文 6 节深度分析
 ├── tools/
 │   ├── arxiv_tool.py                # arXiv API 封装
 │   ├── semantic_scholar_tool.py     # S2 API 封装
-│   └── pdf_tool.py                  # PDF 下载 + PyMuPDF 解析
-├── reports/                         # 生成的综述报告（按时间戳命名）
+│   ├── pdf_tool.py                  # PDF 下载 + PyMuPDF 解析
+│   └── marker_tool.py               # marker 高质量解析（带 PyMuPDF fallback）
+├── reports/                         # 综述报告 + 论文元数据 JSON
+├── readings/                        # 精读报告
 ├── pdfs/                            # 下载的论文 PDF
 └── .cache/                          # diskcache，7 天 TTL
 ```
 
 ## 已完成功能
 
-### 核心 Pipeline
+### 综述 Pipeline
 四个 Agent 串联：**Planner → Search → Writer → Critic**
 
 | Agent | 职责 |
@@ -47,6 +66,18 @@ research_agent/
 | Search | arXiv（并行）+ Semantic Scholar（限速）双源检索，按引用数排序，截断 Top 20 |
 | Writer | 输出中文综述：背景 / 方法分类 / Research Gap / 参考文献 |
 | Critic | 审查覆盖度、引用正确性、结构、语气，必要时让 Writer 修订 |
+
+### 精读 Pipeline
+单 Agent：**DeepReader**，输出 6 节结构化分析
+
+| 输入方式 | 例子 |
+|---|---|
+| 综述编号 | `python read.py 7` 读最近一次综述里的第 7 篇 |
+| arXiv ID / URL | `python read.py 2301.12345` |
+| 本地 PDF | `python read.py ./paper.pdf`（适合手动下的闭源论文） |
+| 交互列表 | `python read.py` 列出最近综述的论文供选择 |
+
+PDF 解析器自动选择：装了 marker 用 marker（公式/表格/双栏高质量），没装用 PyMuPDF（快速）。
 
 ### 内置领域
 `cv / nlp / multimodal / fluid / rl / robotics_uav / world_model / general_sci`，每个领域配对应的顶刊/顶会名（JFM、PoF、Nature、ICML、CVPR、NeurIPS 等）。

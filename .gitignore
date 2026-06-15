@@ -1,7 +1,8 @@
-# 缓存 / 下载的论文 / 生成的报告
+# 缓存 / 下载的论文 / 生成的报告 / 精读
 .cache/
 pdfs/
 reports/
+readings/
 
 # Python
 __pycache__/

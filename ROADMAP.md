@@ -1,5 +1,11 @@
 # Roadmap
 
+## ✅ 已完成
+
+- **单篇精读模式** `read.py`：6 节结构化分析（背景/方法/实验/结果/局限/可借鉴点），支持综述编号 / arxiv ID / URL / 本地 PDF / 交互选择 5 种输入
+- **marker 高质量 PDF 解析**：精读管线装了 marker 就自动用，没装 fallback PyMuPDF
+- **综述论文元数据持久化** `reports/<ts>_papers.json`：供 `read.py` 索引精读
+
 ## P0 — 马上做
 
 ### 1. Semantic Scholar API key 接入
@@ -27,10 +33,9 @@ cookie 过期需要在浏览器重新登录一次。
 
 ## P2 — 看效果再决定
 
-### 4. PDF 解析升级 PyMuPDF → Marker
-当前 PyMuPDF 在公式、双栏、表格上质量一般。如果发现 Writer 写不出深度细节再升级 marker：
-- 优点：LaTeX 公式还原、表格 markdown 化、双栏正确
-- 代价：~5GB 模型权重，CPU 推理 30-60s/篇
+### 4. 综述管线也用 marker
+当前综述管线仍用 PyMuPDF（快、批量），如果发现 Writer 写不出深度细节再切 marker。
+精读已是 marker，可参考 `tools/marker_tool.py`。
 
 ### 5. 多轮对话式精炼
 当前是一次性出报告。加交互模式后可以：

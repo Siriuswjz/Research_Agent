@@ -5,7 +5,7 @@ from agents.critic import review, revise
 from config import MIN_PAPERS
 
 
-def run(research_question: str) -> str:
+def run(research_question: str) -> tuple[str, list[dict]]:
     print(f"\n🔍 研究问题：{research_question}\n")
 
     # Step 1: 规划搜索关键词
@@ -53,7 +53,7 @@ def run(research_question: str) -> str:
         print("\n✍️  Writer：根据 Critic 反馈修订...")
         report = revise(formatted, report, issues)
 
-    return report
+    return report, papers
 
 
 if __name__ == "__main__":
@@ -69,22 +69,30 @@ if __name__ == "__main__":
         print("已取消")
         raise SystemExit
 
-    result = run(question)
+    result, papers = run(question)
     print("\n" + "=" * 60)
     print(result)
     print("=" * 60)
 
-    # 保存到文件：reports/YYYY-MM-DD_HHMMSS_<slug>.md
+    # 保存报告 + 元数据（供 read.py 索引）
     import os
     import re
+    import json
     from datetime import datetime
 
     os.makedirs("reports", exist_ok=True)
     slug = re.sub(r"[^\w\s-]", "", question.lower())
     slug = re.sub(r"[\s_-]+", "-", slug).strip("-")[:40]
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    path = f"reports/{timestamp}_{slug}.md"
+    base = f"reports/{timestamp}_{slug}"
 
-    with open(path, "w", encoding="utf-8") as f:
+    with open(f"{base}.md", "w", encoding="utf-8") as f:
         f.write(f"# Research Report\n\n**问题**：{question}\n\n{result}")
-    print(f"\n✅ 报告已保存到 {path}")
+
+    # 论文元数据（去掉 fulltext 字段省空间）
+    meta = [{k: v for k, v in p.items() if k != "fulltext"} for p in papers]
+    with open(f"{base}_papers.json", "w", encoding="utf-8") as f:
+        json.dump({"question": question, "papers": meta}, f, ensure_ascii=False, indent=2)
+
+    print(f"\n✅ 报告：{base}.md")
+    print(f"   元数据：{base}_papers.json（供 read.py 精读用）")
