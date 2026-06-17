@@ -22,7 +22,7 @@ def search_semantic_scholar(
     query: str,
     max_results: int = 10,
     year_from: int | None = None,
-    retries: int = 3,
+    retries: int = 2,
     use_cache: bool = True,
 ) -> List[Dict]:
     key = hashlib.md5(f"s2|{query}|{max_results}|{year_from}".encode()).hexdigest()
@@ -43,7 +43,7 @@ def search_semantic_scholar(
             resp = session.get(
                 "https://api.semanticscholar.org/graph/v1/paper/search",
                 params=params,
-                timeout=15,
+                timeout=8,
                 proxies=PROXIES,
             )
             resp.raise_for_status()
@@ -76,7 +76,7 @@ def search_semantic_scholar(
             if attempt == retries - 1:
                 raise RuntimeError(f"Semantic Scholar 搜索失败（查询：{query}）：{e}") from e
             # 429 限速时等更久
-            wait = 5 * (attempt + 1) if "429" in str(e) else 2 ** attempt
-            print(f"   ⚠️  Semantic Scholar 请求失败，{wait}s 后重试...")
+            wait = 3 * (attempt + 1) if "429" in str(e) else 2 ** attempt
+            print(f"   ⚠️  Semantic Scholar 请求失败 ({type(e).__name__})，{wait}s 后重试...")
             time.sleep(wait)
     return []

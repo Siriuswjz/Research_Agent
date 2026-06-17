@@ -29,18 +29,22 @@ def search(queries: list[str], year_from: int | None = None) -> tuple[list[dict]
                     all_papers.append(p)
 
     # Semantic Scholar 串行（免费 API 限制 ~1 req/s）
+    print(f"   arXiv 已返回 {len(all_papers)} 篇，开始查 Semantic Scholar...")
     for i, query in enumerate(queries):
         if i > 0:
             time.sleep(1.1)
+        print(f"   [S2 {i+1}/{len(queries)}] {query[:50]}...")
         try:
+            before = len(all_papers)
             for p in search_semantic_scholar(
                 query, max_results=MAX_SEARCH_RESULTS, year_from=year_from
             ):
                 if p["url"] not in seen_urls:
                     seen_urls.add(p["url"])
                     all_papers.append(p)
+            print(f"      ↳ +{len(all_papers) - before} 篇")
         except RuntimeError as e:
-            print(f"   ⚠️  Semantic Scholar [{query}]: {e}")
+            print(f"      ↳ 失败: {str(e)[:80]}")
 
     # 引用数高的排前面，没有引用数字段的（arXiv）默认 0
     all_papers.sort(key=lambda p: p.get("citation_count", 0), reverse=True)
