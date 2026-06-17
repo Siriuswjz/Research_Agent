@@ -21,12 +21,20 @@ python read.py                       # 精读单篇（交互选择）
 ### 精读模式
 
 ```bash
-python read.py                       # 列出最近综述的论文，选编号
-python read.py 7                     # 直接精读综述里的第 7 篇
+python read.py                       # 列出所有调研过的论文（跨综述去重），选编号
+python read.py 7                     # 单篇：全局编号
+python read.py 1 3 5                 # 批量：多个编号
+python read.py 1-10                  # 批量：范围
+python read.py --top 5               # 批量：最近综述被引前 5
+python read.py --all                 # 批量：最近综述全部
+python read.py "vision transformer"  # 标题模糊匹配
 python read.py 2301.12345            # arxiv ID
 python read.py https://...           # 任意 PDF URL
 python read.py ./paper.pdf           # 本地 PDF
+python read.py 7 "vit" 2301.x ./p.pdf  # 混合
 ```
+
+批量模式失败自动跳过，结尾汇总成功/失败，失败列表写到 `readings/_batch_<ts>_failed.md`。
 
 默认用 PyMuPDF 解析。要更高质量装 marker：`pip install marker-pdf`（首次跑下 ~5GB 模型）。
 
@@ -68,14 +76,10 @@ research_agent/
 | Critic | 审查覆盖度、引用正确性、结构、语气，必要时让 Writer 修订 |
 
 ### 精读 Pipeline
-单 Agent：**DeepReader**，输出 6 节结构化分析
+单 Agent：**DeepReader**，输出 6 节结构化分析（背景/方法/实验/结果/局限/可借鉴点）。
+支持单篇或批量，跑多次综述后所有论文跨报告**全局去重 + 全局编号**。
 
-| 输入方式 | 例子 |
-|---|---|
-| 综述编号 | `python read.py 7` 读最近一次综述里的第 7 篇 |
-| arXiv ID / URL | `python read.py 2301.12345` |
-| 本地 PDF | `python read.py ./paper.pdf`（适合手动下的闭源论文） |
-| 交互列表 | `python read.py` 列出最近综述的论文供选择 |
+输入方式见 [快速开始 → 精读模式](#精读模式)。
 
 PDF 解析器自动选择：装了 marker 用 marker（公式/表格/双栏高质量），没装用 PyMuPDF（快速）。
 

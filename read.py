@@ -1,12 +1,18 @@
 """
-精读单篇论文。
+精读论文：单篇或批量。
 
 用法：
-    python read.py                    # 交互模式：列出最近综述的论文供选择
-    python read.py 7                  # 综述里的编号
+    python read.py                    # 交互模式：列出所有调研过的论文（跨综述合并去重）
+    python read.py 7                  # 全局编号
+    python read.py 1 3 5              # 批量：多个编号
+    python read.py 1-10               # 批量：范围
+    python read.py --top 5            # 批量：综述里被引前 5（最近一次综述）
+    python read.py --all              # 批量：全部（小心，可能 20+ 篇）
+    python read.py "vision transformer"  # 标题模糊匹配
     python read.py 2301.12345         # arxiv ID
-    python read.py https://...        # 任意 PDF URL
-    python read.py ./paper.pdf        # 本地 PDF 路径
+    python read.py https://...        # PDF URL
+    python read.py ./paper.pdf        # 本地 PDF
+    可混合：python read.py 7 "vit" 2301.12345 ./x.pdf
 """
 import os
 import re
@@ -22,157 +28,221 @@ from agents.deep_reader import deep_read
 from config import PDF_DIR
 
 
+# ───────────────────────── 工具函数 ─────────────────────────
+
 def _slugify(s: str, max_len: int = 60) -> str:
     s = re.sub(r"[^\w\s-]", "", s.lower())
     s = re.sub(r"[\s_-]+", "-", s).strip("-")
     return s[:max_len] or "untitled"
 
 
-def _latest_papers_json() -> str | None:
-    files = sorted(glob.glob("reports/*_papers.json"))
-    return files[-1] if files else None
-
-
-def _load_papers(path: str) -> list[dict]:
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)["papers"]
+def _is_arxiv_id(s: str) -> bool:
+    return bool(re.fullmatch(r"\d{4}\.\d{4,5}(v\d+)?", s))
 
 
 def _arxiv_id_to_pdf(arxiv_id: str) -> str:
     return f"https://arxiv.org/pdf/{arxiv_id}.pdf"
 
 
-def _is_arxiv_id(s: str) -> bool:
-    return bool(re.fullmatch(r"\d{4}\.\d{4,5}(v\d+)?", s))
+# ───────────────────────── 全局论文索引 ─────────────────────────
 
-
-def resolve_input(arg: str | None) -> tuple[str, dict | None]:
+def _load_all_papers() -> list[dict]:
     """
-    返回 (本地 PDF 路径, 论文元数据 dict or None)
+    扫所有 reports/*_papers.json，合并去重（按 URL），按时间倒序。
+    返回的每条多带 _source 字段（来自哪个综述）。
     """
-    # 模式 C: 无参数 → 交互列表
-    if arg is None:
-        return _interactive_select()
-
-    # 模式 B-3: 本地文件
-    if os.path.isfile(arg) and arg.lower().endswith(".pdf"):
-        return arg, None
-
-    # 模式 A: 纯数字 → 综述编号
-    if arg.isdigit():
-        return _from_report_index(int(arg))
-
-    # 模式 B-1: arxiv ID
-    if _is_arxiv_id(arg):
-        return _download_to_local(_arxiv_id_to_pdf(arg), title=f"arxiv_{arg}"), None
-
-    # 模式 B-2: URL
-    if arg.startswith("http"):
-        # arxiv abs URL → 转 pdf URL
-        m = re.match(r"https?://arxiv\.org/abs/([\d.]+)", arg)
-        if m:
-            return _download_to_local(_arxiv_id_to_pdf(m.group(1)), title=f"arxiv_{m.group(1)}"), None
-        return _download_to_local(arg, title=hashlib.md5(arg.encode()).hexdigest()[:8]), None
-
-    raise ValueError(f"无法识别的输入：{arg}")
+    files = sorted(glob.glob("reports/*_papers.json"), reverse=True)
+    seen, merged = set(), []
+    for fp in files:
+        try:
+            with open(fp, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            continue
+        # 从文件名提取综述信息
+        basename = os.path.basename(fp).replace("_papers.json", "")
+        question = data.get("question", "")[:40]
+        source = f"{basename[:10]} {question}"
+        for p in data.get("papers", []):
+            url = p.get("url")
+            if url and url not in seen:
+                seen.add(url)
+                p = dict(p)
+                p["_source"] = source
+                merged.append(p)
+    return merged
 
 
-def _interactive_select() -> tuple[str, dict]:
-    latest = _latest_papers_json()
-    if not latest:
-        print("❌ 没有找到任何综述报告，请先 python main.py 跑一次")
-        sys.exit(1)
+def _latest_papers() -> list[dict]:
+    """只读最近一次综述的论文（用于 --top / --all）"""
+    files = sorted(glob.glob("reports/*_papers.json"))
+    if not files:
+        return []
+    with open(files[-1], encoding="utf-8") as f:
+        return json.load(f).get("papers", [])
 
-    papers = _load_papers(latest)
-    print(f"\n📋 来自 {latest}：\n")
+
+def _fuzzy_match(query: str, papers: list[dict]) -> list[dict]:
+    """标题模糊匹配（子串、不区分大小写）"""
+    q = query.lower()
+    return [p for p in papers if q in p.get("title", "").lower()]
+
+
+def _print_list(papers: list[dict]):
     for i, p in enumerate(papers, 1):
         flag = " ⚠️" if p.get("needs_manual") else ""
-        venue = f" | {p['venue']}" if p.get("venue") else ""
-        citation = f" | 被引 {p['citation_count']}" if p.get("citation_count") is not None else ""
-        print(f"[{i:2d}]{flag} {p['title'][:80]}{venue}{citation}")
-
-    choice = input("\n要精读哪一篇？输入编号：").strip()
-    if not choice.isdigit():
-        print("❌ 必须是数字")
-        sys.exit(1)
-
-    idx = int(choice)
-    if not (1 <= idx <= len(papers)):
-        print(f"❌ 编号 {idx} 超出范围（1-{len(papers)}）")
-        sys.exit(1)
-
-    paper = papers[idx - 1]
-    return _resolve_paper(paper), paper
+        meta_parts = []
+        if p.get("venue"):
+            meta_parts.append(p["venue"])
+        if p.get("citation_count") is not None:
+            meta_parts.append(f"被引 {p['citation_count']}")
+        if p.get("_source"):
+            meta_parts.append(f"来自 {p['_source']}")
+        meta = " | ".join(meta_parts)
+        print(f"[{i:2d}]{flag} {p['title'][:75]}")
+        if meta:
+            print(f"     {meta}")
 
 
-def _from_report_index(idx: int) -> tuple[str, dict]:
-    latest = _latest_papers_json()
-    if not latest:
-        print("❌ 没有找到任何综述报告，请先 python main.py 跑一次")
-        sys.exit(1)
-    papers = _load_papers(latest)
-    if not (1 <= idx <= len(papers)):
-        print(f"❌ 编号 {idx} 超出范围（最近综述有 {len(papers)} 篇）")
-        sys.exit(1)
-    paper = papers[idx - 1]
-    return _resolve_paper(paper), paper
+# ───────────────────────── 选择器解析 ─────────────────────────
+
+def parse_selectors(args: list[str], all_papers: list[dict]) -> list[dict | str]:
+    """
+    把命令行参数解析为待精读项的列表。
+    每项要么是 dict（来自全局列表的 paper 元数据），要么是 str（arxiv id / url / 本地路径）
+    """
+    items: list[dict | str] = []
+
+    for arg in args:
+        # --all
+        if arg == "--all":
+            items.extend(_latest_papers())
+            continue
+
+        # --top N
+        if arg.startswith("--top"):
+            n = int(arg.split("=")[-1]) if "=" in arg else int(args[args.index(arg) + 1])
+            items.extend(_latest_papers()[:n])
+            continue
+        if arg.isdigit() and len(args) > 1 and args[args.index(arg) - 1] == "--top":
+            continue  # 已被 --top 消费
+
+        # 范围 "1-10"
+        m = re.fullmatch(r"(\d+)-(\d+)", arg)
+        if m:
+            start, end = int(m.group(1)), int(m.group(2))
+            for idx in range(start, end + 1):
+                if 1 <= idx <= len(all_papers):
+                    items.append(all_papers[idx - 1])
+                else:
+                    print(f"⚠️  编号 {idx} 超出范围（共 {len(all_papers)} 篇），跳过")
+            continue
+
+        # 纯数字 → 全局编号
+        if arg.isdigit():
+            idx = int(arg)
+            if 1 <= idx <= len(all_papers):
+                items.append(all_papers[idx - 1])
+            else:
+                print(f"❌ 编号 {idx} 超出范围（共 {len(all_papers)} 篇）")
+            continue
+
+        # 本地文件
+        if os.path.isfile(arg) and arg.lower().endswith(".pdf"):
+            items.append(arg)
+            continue
+
+        # arxiv ID
+        if _is_arxiv_id(arg):
+            items.append(arg)
+            continue
+
+        # URL
+        if arg.startswith("http"):
+            items.append(arg)
+            continue
+
+        # 模糊匹配标题
+        matches = _fuzzy_match(arg, all_papers)
+        if not matches:
+            print(f"❌ 找不到匹配 '{arg}' 的论文")
+            continue
+        if len(matches) == 1:
+            items.append(matches[0])
+            continue
+        # 多个匹配，要求选择
+        print(f"\n🔍 '{arg}' 匹配到多篇：")
+        _print_list(matches)
+        choice = input("选择编号（1-{}）：".format(len(matches))).strip()
+        if choice.isdigit() and 1 <= int(choice) <= len(matches):
+            items.append(matches[int(choice) - 1])
+        else:
+            print(f"❌ 跳过 '{arg}'")
+
+    return items
 
 
-def _resolve_paper(paper: dict) -> str:
-    """从 paper 元数据下载 PDF，闭源/失败则提示"""
-    if paper.get("needs_manual"):
-        print(f"\n⚠️  这篇是闭源论文（{paper.get('venue', '')}），需要手动下载")
-        print(f"   链接：{paper['url']}")
-        print(f"   下载后用：python read.py <pdf路径>")
-        sys.exit(1)
+# ───────────────────────── PDF 获取 ─────────────────────────
 
-    pdf_url = paper.get("pdf_url")
-    if not pdf_url:
-        print(f"❌ 论文没有 PDF 链接：{paper['title']}")
-        sys.exit(1)
-
-    return _download_to_local(pdf_url, title=paper["title"])
-
-
-def _download_to_local(url: str, title: str = "") -> str:
+def _download_to_local(url: str, title: str = "") -> str | None:
     os.makedirs(PDF_DIR, exist_ok=True)
     key = hashlib.md5(url.encode()).hexdigest()[:8]
     filename = f"{_slugify(title)}_{key}.pdf" if title else f"{key}.pdf"
     path = os.path.join(PDF_DIR, filename)
 
     if os.path.exists(path):
-        print(f"✅ 已存在本地 PDF：{path}")
         return path
 
-    print(f"📥 下载 {url} ...")
+    print(f"   📥 下载 {url[:70]}...")
     content = download_pdf(url)
     if content is None:
-        print(f"❌ 下载失败（可能是闭源或网络问题）")
-        sys.exit(1)
+        return None
     with open(path, "wb") as f:
         f.write(content)
-    print(f"✅ 已保存：{path}")
     return path
 
 
-def main():
-    arg = sys.argv[1] if len(sys.argv) > 1 else None
-    print(f"📖 PDF 解析器：{'marker (高质量)' if is_marker_available() else 'PyMuPDF (快速)'}")
+def resolve_to_pdf(item: dict | str) -> tuple[str | None, dict | None]:
+    """
+    把一项解析为 (pdf_path, paper_meta)。失败返回 (None, paper_meta)。
+    """
+    if isinstance(item, str):
+        # 本地路径
+        if os.path.isfile(item) and item.lower().endswith(".pdf"):
+            return item, None
+        # arxiv ID
+        if _is_arxiv_id(item):
+            url = _arxiv_id_to_pdf(item)
+            return _download_to_local(url, title=f"arxiv_{item}"), None
+        # URL
+        if item.startswith("http"):
+            m = re.match(r"https?://arxiv\.org/abs/([\d.]+)", item)
+            url = _arxiv_id_to_pdf(m.group(1)) if m else item
+            return _download_to_local(url, title=hashlib.md5(item.encode()).hexdigest()[:8]), None
+        return None, None
 
-    pdf_path, paper_meta = resolve_input(arg)
-    title = paper_meta.get("title", "") if paper_meta else os.path.basename(pdf_path)
+    # paper 元数据
+    paper = item
+    if paper.get("needs_manual"):
+        return None, paper
+    pdf_url = paper.get("pdf_url")
+    if not pdf_url:
+        return None, paper
+    return _download_to_local(pdf_url, title=paper.get("title", "")), paper
 
-    print(f"\n🧠 解析 PDF 全文...")
+
+# ───────────────────────── 精读 + 保存 ─────────────────────────
+
+def deep_read_one(pdf_path: str, title: str, paper_meta: dict | None) -> str | None:
+    """解析 + 精读 + 保存。返回精读报告路径"""
+    print(f"   🧠 解析 PDF...")
     text = parse_pdf_high_quality(pdf_path)
     if not text.strip():
-        print("❌ PDF 解析为空")
-        sys.exit(1)
-    print(f"   共 {len(text)} 字符")
-
-    print(f"\n✍️  DeepReader：生成精读报告...")
+        print(f"   ❌ PDF 解析为空")
+        return None
+    print(f"   ✍️  DeepReader 精读中（全文 {len(text)} 字符）...")
     report = deep_read(text, paper_title=title)
 
-    # 保存
     os.makedirs("readings", exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     slug = _slugify(title)
@@ -182,8 +252,83 @@ def main():
         if paper_meta:
             header += f"> 链接：{paper_meta.get('url', '')}\n"
         f.write(header + "\n" + report)
+    return out_path
 
-    print(f"\n✅ 精读报告：{out_path}")
+
+# ───────────────────────── 主流程 ─────────────────────────
+
+def main():
+    print(f"📖 PDF 解析器：{'marker (高质量)' if is_marker_available() else 'PyMuPDF (快速)'}")
+    all_papers = _load_all_papers()
+
+    args = sys.argv[1:]
+
+    # 无参数 → 交互列表
+    if not args:
+        if not all_papers:
+            print("❌ 没有任何综述报告，请先 python main.py")
+            sys.exit(1)
+        print(f"\n📋 共 {len(all_papers)} 篇论文（跨所有综述去重）：\n")
+        _print_list(all_papers)
+        choice = input("\n要精读哪些？支持单个/多个/范围（如 7 / 1 3 5 / 1-10）：").strip().split()
+        if not choice:
+            sys.exit(0)
+        args = choice
+
+    # 解析所有选择器
+    items = parse_selectors(args, all_papers)
+    if not items:
+        print("❌ 没有可精读的项")
+        sys.exit(1)
+
+    # 去重（同一篇可能多次出现）
+    seen, unique_items = set(), []
+    for it in items:
+        key = it["url"] if isinstance(it, dict) else it
+        if key not in seen:
+            seen.add(key)
+            unique_items.append(it)
+
+    total = len(unique_items)
+    print(f"\n🚀 准备精读 {total} 篇\n")
+
+    succeeded: list[str] = []
+    failed: list[tuple[str, str]] = []  # (title, reason)
+
+    for i, item in enumerate(unique_items, 1):
+        title = item.get("title", "")[:75] if isinstance(item, dict) else str(item)
+        print(f"\n[{i}/{total}] {title}")
+
+        pdf_path, paper_meta = resolve_to_pdf(item)
+        if pdf_path is None:
+            reason = "闭源，需手动下载" if (paper_meta and paper_meta.get("needs_manual")) else "PDF 下载失败"
+            print(f"   ⚠️  跳过：{reason}")
+            failed.append((title, reason))
+            continue
+
+        out = deep_read_one(pdf_path, title or os.path.basename(pdf_path), paper_meta)
+        if out:
+            print(f"   ✅ {out}")
+            succeeded.append(out)
+        else:
+            failed.append((title, "解析或精读失败"))
+
+    # 汇总
+    print(f"\n{'=' * 60}")
+    print(f"✅ 成功 {len(succeeded)} / 失败 {len(failed)}")
+    if failed:
+        print(f"\n失败论文：")
+        for title, reason in failed:
+            print(f"  - [{reason}] {title}")
+        # 写失败汇总到 readings/
+        os.makedirs("readings", exist_ok=True)
+        ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        fail_path = f"readings/_batch_{ts}_failed.md"
+        with open(fail_path, "w", encoding="utf-8") as f:
+            f.write("# 批量精读失败汇总\n\n")
+            for title, reason in failed:
+                f.write(f"- **{reason}**: {title}\n")
+        print(f"\n失败汇总：{fail_path}")
 
 
 if __name__ == "__main__":
