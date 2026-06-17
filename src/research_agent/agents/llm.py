@@ -2,7 +2,7 @@ import time
 import hashlib
 import diskcache
 from openai import OpenAI, APIConnectionError, APIStatusError
-from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, MAX_TOKENS, CACHE_DIR, CACHE_TTL_SECONDS
+from research_agent.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, MAX_TOKENS, CACHE_DIR, CACHE_TTL_SECONDS
 
 _cache = diskcache.Cache(f"{CACHE_DIR}/llm")
 

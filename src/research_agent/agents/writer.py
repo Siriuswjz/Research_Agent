@@ -1,4 +1,4 @@
-from agents.llm import chat
+from research_agent.agents.llm import chat
 
 SYSTEM = """你是一个科研综述撰写专家。
 根据提供的论文列表，生成一份结构化的中文综述，包含：

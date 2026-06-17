@@ -22,11 +22,11 @@ import glob
 import hashlib
 from datetime import datetime
 
-from tools.pdf_tool import download_pdf
-from tools.marker_tool import parse_pdf_high_quality, is_marker_available
-from tools.gpu_utils import recommended_workers, describe_device
-from agents.deep_reader import deep_read
-from config import PDF_DIR, PARALLEL_WORKERS
+from research_agent.tools.pdf_tool import download_pdf
+from research_agent.tools.marker_tool import parse_pdf_high_quality, is_marker_available
+from research_agent.tools.gpu_utils import recommended_workers, describe_device
+from research_agent.agents.deep_reader import deep_read
+from research_agent.config import PDF_DIR, PARALLEL_WORKERS
 
 
 # ───────────────────────── 工具函数 ─────────────────────────
@@ -262,7 +262,7 @@ def _parallel_worker(args):
     if gpu_id is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
     # 子进程要重新 import（避免父进程的 torch 已初始化导致绑卡无效）
-    from read import resolve_to_pdf, deep_read_one  # noqa
+    from research_agent.read import resolve_to_pdf, deep_read_one  # noqa
     title = item.get("title", "")[:75] if isinstance(item, dict) else str(item)
     try:
         pdf_path, paper_meta = resolve_to_pdf(item)

@@ -1,9 +1,9 @@
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from tools.arxiv_tool import search_arxiv, format_papers
-from tools.semantic_scholar_tool import search_semantic_scholar
-from tools.pdf_tool import fetch_fulltext
-from config import (
+from research_agent.tools.arxiv_tool import search_arxiv, format_papers
+from research_agent.tools.semantic_scholar_tool import search_semantic_scholar
+from research_agent.tools.pdf_tool import fetch_fulltext
+from research_agent.config import (
     MAX_SEARCH_RESULTS, MAX_TOTAL_PAPERS,
     ENABLE_FULLTEXT, FULLTEXT_TOP_N, FULLTEXT_MAX_CHARS,
 )

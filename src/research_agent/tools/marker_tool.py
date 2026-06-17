@@ -1,6 +1,6 @@
 """高质量 PDF → Markdown，优先用 marker，没装则 fallback 到 PyMuPDF"""
 import os
-from tools.pdf_tool import parse_pdf
+from research_agent.tools.pdf_tool import parse_pdf
 
 _marker_converter = None
 

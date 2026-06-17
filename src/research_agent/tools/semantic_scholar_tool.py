@@ -3,7 +3,7 @@ import hashlib
 import requests
 import diskcache
 from typing import List, Dict
-from config import CACHE_DIR, CACHE_TTL_SECONDS, PROXIES
+from research_agent.config import CACHE_DIR, CACHE_TTL_SECONDS, PROXIES
 
 _SESSION: requests.Session | None = None
 _cache = diskcache.Cache(f"{CACHE_DIR}/semantic_scholar")

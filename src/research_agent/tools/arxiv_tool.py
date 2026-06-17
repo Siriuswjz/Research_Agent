@@ -3,7 +3,7 @@ import hashlib
 import arxiv
 import diskcache
 from typing import List, Dict
-from config import CACHE_DIR, CACHE_TTL_SECONDS
+from research_agent.config import CACHE_DIR, CACHE_TTL_SECONDS
 
 _arxiv_client: arxiv.Client | None = None
 _cache = diskcache.Cache(f"{CACHE_DIR}/arxiv")

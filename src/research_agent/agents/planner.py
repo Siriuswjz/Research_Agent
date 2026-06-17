@@ -1,4 +1,4 @@
-from agents.llm import chat
+from research_agent.agents.llm import chat
 
 # 用户常用领域 → 检索时偏好的术语 + 期刊/会议名（提高检索精度，也让 Writer 能识别顶刊）
 DOMAINS = {

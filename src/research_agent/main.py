@@ -1,8 +1,8 @@
-from agents.planner import plan, expand
-from agents.search import search
-from agents.writer import write
-from agents.critic import review, revise
-from config import MIN_PAPERS
+from research_agent.agents.planner import plan, expand
+from research_agent.agents.search import search
+from research_agent.agents.writer import write
+from research_agent.agents.critic import review, revise
+from research_agent.config import MIN_PAPERS
 
 
 def run(research_question: str) -> tuple[str, list[dict]]:
@@ -56,7 +56,12 @@ def run(research_question: str) -> tuple[str, list[dict]]:
     return report, papers
 
 
-if __name__ == "__main__":
+def main():
+    import os
+    import re
+    import json
+    from datetime import datetime
+
     print("请输入你的研究问题（输入完按回车，然后输入 y 确认）：")
     question = input("> ").strip()
     if not question:
@@ -67,18 +72,12 @@ if __name__ == "__main__":
     confirm = input("确认开始？(y/n)：").strip().lower()
     if confirm not in ("y", "yes", ""):
         print("已取消")
-        raise SystemExit
+        return
 
     result, papers = run(question)
     print("\n" + "=" * 60)
     print(result)
     print("=" * 60)
-
-    # 保存报告 + 元数据（供 read.py 索引）
-    import os
-    import re
-    import json
-    from datetime import datetime
 
     os.makedirs("reports", exist_ok=True)
     slug = re.sub(r"[^\w\s-]", "", question.lower())
@@ -89,10 +88,13 @@ if __name__ == "__main__":
     with open(f"{base}.md", "w", encoding="utf-8") as f:
         f.write(f"# Research Report\n\n**问题**：{question}\n\n{result}")
 
-    # 论文元数据（去掉 fulltext 字段省空间）
     meta = [{k: v for k, v in p.items() if k != "fulltext"} for p in papers]
     with open(f"{base}_papers.json", "w", encoding="utf-8") as f:
         json.dump({"question": question, "papers": meta}, f, ensure_ascii=False, indent=2)
 
     print(f"\n✅ 报告：{base}.md")
-    print(f"   元数据：{base}_papers.json（供 read.py 精读用）")
+    print(f"   元数据：{base}_papers.json（供 research-agent-read 精读用）")
+
+
+if __name__ == "__main__":
+    main()

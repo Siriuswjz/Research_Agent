@@ -1,4 +1,4 @@
-from agents.llm import chat
+from research_agent.agents.llm import chat
 
 SYSTEM = """你是科研论文精读专家。请基于提供的论文全文（markdown 或纯文本），
 生成一份中文精读报告。报告结构必须严格按以下格式：

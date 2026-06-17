@@ -4,7 +4,7 @@ import hashlib
 import requests
 import diskcache
 import fitz  # pymupdf
-from config import CACHE_DIR, CACHE_TTL_SECONDS, PDF_DIR, PROXIES
+from research_agent.config import CACHE_DIR, CACHE_TTL_SECONDS, PDF_DIR, PROXIES
 
 _cache = diskcache.Cache(f"{CACHE_DIR}/pdf_text")
 os.makedirs(PDF_DIR, exist_ok=True)

@@ -1,4 +1,4 @@
-from agents.llm import chat
+from research_agent.agents.llm import chat
 
 CRITIC_SYSTEM = """你是科研综述审稿专家。请审查给定的综述初稿，重点检查：
 
