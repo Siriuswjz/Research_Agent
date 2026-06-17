@@ -239,10 +239,54 @@ def resolve_to_pdf(item: dict | str) -> tuple[str | None, dict | None]:
     return _download_to_local(pdf_url, title=paper.get("title", "")), paper
 
 
+# ───────────────────────── 精读索引（去重） ─────────────────────────
+
+READINGS_INDEX = "readings/_index.json"
+
+
+def _paper_key(pdf_path: str, paper_meta: dict | None) -> str:
+    """稳定的论文标识：优先 URL，其次 PDF 文件内容 hash。"""
+    if paper_meta and paper_meta.get("url"):
+        return f"url:{paper_meta['url']}"
+    # 本地文件 / 没有 URL → 内容 hash
+    h = hashlib.sha256()
+    with open(pdf_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return f"sha256:{h.hexdigest()}"
+
+
+def _load_index() -> dict:
+    if not os.path.exists(READINGS_INDEX):
+        return {}
+    try:
+        with open(READINGS_INDEX, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_index(idx: dict) -> None:
+    os.makedirs("readings", exist_ok=True)
+    with open(READINGS_INDEX, "w", encoding="utf-8") as f:
+        json.dump(idx, f, ensure_ascii=False, indent=2)
+
+
 # ───────────────────────── 精读 + 保存 ─────────────────────────
 
-def deep_read_one(pdf_path: str, title: str, paper_meta: dict | None) -> str | None:
-    """解析 + 精读 + 保存。返回精读报告路径"""
+def deep_read_one(pdf_path: str, title: str, paper_meta: dict | None,
+                  force: bool = False) -> str | None:
+    """解析 + 精读 + 保存。返回精读报告路径。
+    若已存在精读且 force=False，跳过并返回已有路径。"""
+    key = _paper_key(pdf_path, paper_meta)
+    idx = _load_index()
+    if not force and key in idx:
+        existing = idx[key]["reading_path"]
+        if os.path.exists(existing):
+            print(f"   ⏭  已精读过，跳过：{existing}")
+            print(f"      （加 --force 可强制重读）")
+            return existing
+
     print(f"   🧠 解析 PDF...")
     text = parse_pdf_high_quality(pdf_path)
     if not text.strip():
@@ -260,12 +304,21 @@ def deep_read_one(pdf_path: str, title: str, paper_meta: dict | None) -> str | N
         if paper_meta:
             header += f"> 链接：{paper_meta.get('url', '')}\n"
         f.write(header + "\n" + report)
+
+    # 注册到索引
+    idx[key] = {
+        "reading_path": out_path,
+        "title": title,
+        "date": timestamp,
+    }
+    _save_index(idx)
+
     return out_path
 
 
 def _parallel_worker(args):
     """multiprocessing 子进程入口：绑定指定 GPU 后跑单篇精读"""
-    item, gpu_id = args
+    item, gpu_id, force = args
     if gpu_id is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
     # 子进程要重新 import（避免父进程的 torch 已初始化导致绑卡无效）
@@ -276,7 +329,7 @@ def _parallel_worker(args):
         if pdf_path is None:
             reason = "闭源，需手动下载" if (paper_meta and paper_meta.get("needs_manual")) else "PDF 下载失败"
             return ("failed", title, reason, None)
-        out = deep_read_one(pdf_path, title or os.path.basename(pdf_path), paper_meta)
+        out = deep_read_one(pdf_path, title or os.path.basename(pdf_path), paper_meta, force=force)
         return ("succeeded", title, None, out) if out else ("failed", title, "解析或精读失败", None)
     except Exception as e:
         return ("failed", title, f"{type(e).__name__}: {e}", None)
@@ -290,6 +343,9 @@ def main():
     all_papers = _load_all_papers()
 
     args = sys.argv[1:]
+    force = "--force" in args
+    if force:
+        args = [a for a in args if a != "--force"]
 
     # 无参数 → 交互列表
     if not args:
@@ -335,7 +391,7 @@ def main():
                 print(f"   ⚠️  跳过：{reason}")
                 failed.append((title, reason))
                 continue
-            out = deep_read_one(pdf_path, title or os.path.basename(pdf_path), paper_meta)
+            out = deep_read_one(pdf_path, title or os.path.basename(pdf_path), paper_meta, force=force)
             if out:
                 print(f"   ✅ {out}")
                 succeeded.append(out)
@@ -346,7 +402,7 @@ def main():
         import multiprocessing as mp
         # 用 spawn 避免 CUDA 在 fork 后状态错乱
         ctx = mp.get_context("spawn")
-        tasks = [(item, i % workers) for i, item in enumerate(unique_items)]
+        tasks = [(item, i % workers, force) for i, item in enumerate(unique_items)]
         with ctx.Pool(workers) as pool:
             for i, result in enumerate(pool.imap_unordered(_parallel_worker, tasks), 1):
                 status, title, reason, out = result
