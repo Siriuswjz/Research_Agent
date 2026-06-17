@@ -19,6 +19,12 @@ FULLTEXT_TOP_N = 5                  # 引用数 Top N 篇尝试下全文
 FULLTEXT_MAX_CHARS = 8000           # 单篇全文截断字符数（控制 prompt 长度）
 PDF_DIR = "pdfs"
 
+# 批量精读并行
+# - "auto"（默认）：检测到 ≥2 张 GPU 自动并行，否则串行
+# - "disabled"：强制串行
+# - 整数：强制使用 N 个 worker
+PARALLEL_WORKERS = os.getenv("PARALLEL_WORKERS", "auto")
+
 # 代理（Semantic Scholar、arXiv PDF 下载会用）
 HTTP_PROXY = os.getenv("HTTP_PROXY", "http://127.0.0.1:7897")
 PROXIES = {"http": HTTP_PROXY, "https": HTTP_PROXY} if HTTP_PROXY else None

@@ -38,6 +38,8 @@ python read.py 7 "vit" 2301.x ./p.pdf  # 混合
 
 默认用 PyMuPDF 解析。要更高质量装 marker：`pip install marker-pdf`（首次跑下 ~5GB 模型）。
 
+**自动 GPU 加速**：检测到 ≥2 张 GPU 时批量精读自动多卡并行，每篇分配到不同卡上。可用环境变量 `PARALLEL_WORKERS` 强制覆盖（`disabled` / 整数 / `auto`）。
+
 ## 项目结构
 
 ```

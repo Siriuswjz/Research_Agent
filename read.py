@@ -24,8 +24,9 @@ from datetime import datetime
 
 from tools.pdf_tool import download_pdf
 from tools.marker_tool import parse_pdf_high_quality, is_marker_available
+from tools.gpu_utils import recommended_workers, describe_device
 from agents.deep_reader import deep_read
-from config import PDF_DIR
+from config import PDF_DIR, PARALLEL_WORKERS
 
 
 # ───────────────────────── 工具函数 ─────────────────────────
@@ -255,10 +256,30 @@ def deep_read_one(pdf_path: str, title: str, paper_meta: dict | None) -> str | N
     return out_path
 
 
+def _parallel_worker(args):
+    """multiprocessing 子进程入口：绑定指定 GPU 后跑单篇精读"""
+    item, gpu_id = args
+    if gpu_id is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    # 子进程要重新 import（避免父进程的 torch 已初始化导致绑卡无效）
+    from read import resolve_to_pdf, deep_read_one  # noqa
+    title = item.get("title", "")[:75] if isinstance(item, dict) else str(item)
+    try:
+        pdf_path, paper_meta = resolve_to_pdf(item)
+        if pdf_path is None:
+            reason = "闭源，需手动下载" if (paper_meta and paper_meta.get("needs_manual")) else "PDF 下载失败"
+            return ("failed", title, reason, None)
+        out = deep_read_one(pdf_path, title or os.path.basename(pdf_path), paper_meta)
+        return ("succeeded", title, None, out) if out else ("failed", title, "解析或精读失败", None)
+    except Exception as e:
+        return ("failed", title, f"{type(e).__name__}: {e}", None)
+
+
 # ───────────────────────── 主流程 ─────────────────────────
 
 def main():
     print(f"📖 PDF 解析器：{'marker (高质量)' if is_marker_available() else 'PyMuPDF (快速)'}")
+    print(f"💻 设备：{describe_device()}")
     all_papers = _load_all_papers()
 
     args = sys.argv[1:]
@@ -290,28 +311,44 @@ def main():
             unique_items.append(it)
 
     total = len(unique_items)
-    print(f"\n🚀 准备精读 {total} 篇\n")
+    workers = recommended_workers(total, PARALLEL_WORKERS)
+    print(f"\n🚀 准备精读 {total} 篇（并行 worker：{workers}）\n")
 
     succeeded: list[str] = []
     failed: list[tuple[str, str]] = []  # (title, reason)
 
-    for i, item in enumerate(unique_items, 1):
-        title = item.get("title", "")[:75] if isinstance(item, dict) else str(item)
-        print(f"\n[{i}/{total}] {title}")
-
-        pdf_path, paper_meta = resolve_to_pdf(item)
-        if pdf_path is None:
-            reason = "闭源，需手动下载" if (paper_meta and paper_meta.get("needs_manual")) else "PDF 下载失败"
-            print(f"   ⚠️  跳过：{reason}")
-            failed.append((title, reason))
-            continue
-
-        out = deep_read_one(pdf_path, title or os.path.basename(pdf_path), paper_meta)
-        if out:
-            print(f"   ✅ {out}")
-            succeeded.append(out)
-        else:
-            failed.append((title, "解析或精读失败"))
+    if workers <= 1:
+        # 串行
+        for i, item in enumerate(unique_items, 1):
+            title = item.get("title", "")[:75] if isinstance(item, dict) else str(item)
+            print(f"\n[{i}/{total}] {title}")
+            pdf_path, paper_meta = resolve_to_pdf(item)
+            if pdf_path is None:
+                reason = "闭源，需手动下载" if (paper_meta and paper_meta.get("needs_manual")) else "PDF 下载失败"
+                print(f"   ⚠️  跳过：{reason}")
+                failed.append((title, reason))
+                continue
+            out = deep_read_one(pdf_path, title or os.path.basename(pdf_path), paper_meta)
+            if out:
+                print(f"   ✅ {out}")
+                succeeded.append(out)
+            else:
+                failed.append((title, "解析或精读失败"))
+    else:
+        # 多 GPU 并行（每个 worker 绑一张卡）
+        import multiprocessing as mp
+        # 用 spawn 避免 CUDA 在 fork 后状态错乱
+        ctx = mp.get_context("spawn")
+        tasks = [(item, i % workers) for i, item in enumerate(unique_items)]
+        with ctx.Pool(workers) as pool:
+            for i, result in enumerate(pool.imap_unordered(_parallel_worker, tasks), 1):
+                status, title, reason, out = result
+                if status == "succeeded":
+                    print(f"[{i}/{total}] ✅ {title}\n            → {out}")
+                    succeeded.append(out)
+                else:
+                    print(f"[{i}/{total}] ⚠️  {title}\n            → {reason}")
+                    failed.append((title, reason))
 
     # 汇总
     print(f"\n{'=' * 60}")
