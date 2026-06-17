@@ -18,13 +18,27 @@ pip install -e .                       # 加 ".[marker]" 启用 marker 高质量
 
 API key 申请：[硅基流动](https://cloud.siliconflow.cn/)（DeepSeek 兼容 OpenAI 接口）
 
+### 配置 API key（任选一种）
+
+**方式 A：`.env` 文件**（推荐，一次设置永久生效）
+在你的工作目录建一个 `.env`（或全局放 `~/.research_agent.env`）：
+```
+DEEPSEEK_API_KEY=sk-你的key
+```
+完整模板见 [.env.example](.env.example)。
+
+**方式 B：环境变量**
 ```bash
-export DEEPSEEK_API_KEY="your-key"
+export DEEPSEEK_API_KEY="sk-你的key"
+```
+
+### 运行
+```bash
 research-agent                          # 生成综述
 research-agent-read                     # 精读单篇（交互选择）
 ```
 
-可选环境变量：`S2_API_KEY`（Semantic Scholar 提速）、`HTTP_PROXY`（代理）。
+可选配置：`S2_API_KEY`（Semantic Scholar 提速）、`HTTP_PROXY`（代理）、`PARALLEL_WORKERS`（GPU 并行）。
 
 ### 精读模式
 

@@ -1,4 +1,15 @@
 import os
+from pathlib import Path
+
+# 自动加载 .env（按优先级：当前目录 > 用户主目录）
+# 用户既可以 export 环境变量，也可以在工作目录或 ~/.research_agent.env 写配置
+try:
+    from dotenv import load_dotenv
+    for env_path in [Path.cwd() / ".env", Path.home() / ".research_agent.env"]:
+        if env_path.exists():
+            load_dotenv(env_path, override=False)
+except ImportError:
+    pass
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = "https://api.siliconflow.cn/v1"
@@ -26,5 +37,5 @@ PDF_DIR = "pdfs"
 PARALLEL_WORKERS = os.getenv("PARALLEL_WORKERS", "auto")
 
 # 代理（Semantic Scholar、arXiv PDF 下载会用）
-HTTP_PROXY = os.getenv("HTTP_PROXY", "http://127.0.0.1:7897")
+HTTP_PROXY = os.getenv("HTTP_PROXY", "")    # 用户没设就不走代理
 PROXIES = {"http": HTTP_PROXY, "https": HTTP_PROXY} if HTTP_PROXY else None
