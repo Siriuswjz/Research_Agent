@@ -153,6 +153,13 @@ def parse_selectors(args: list[str], all_papers: list[dict]) -> list[dict | str]
             items.append(arg)
             continue
 
+        # 看起来像路径但文件不存在 → 直接报错（不去模糊匹配）
+        if arg.lower().endswith(".pdf") or "/" in arg or "\\" in arg:
+            print(f"❌ 文件不存在：{arg}")
+            print(f"   提示：路径含空格时记得加引号，例如：")
+            print(f'   research-agent-read "path with spaces/paper.pdf"')
+            continue
+
         # arxiv ID
         if _is_arxiv_id(arg):
             items.append(arg)
