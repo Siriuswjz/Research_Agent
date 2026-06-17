@@ -9,6 +9,8 @@ DOMAINS = {
     "rl": "强化学习（NeurIPS, ICML, ICLR, CoRL）",
     "robotics_uav": "机器人/无人机（ICRA, IROS, RSS, CoRL, T-RO）",
     "world_model": "世界模型（NeurIPS, ICLR, ICML）",
+    "security": "系统/网络安全（IEEE S&P, USENIX Security, CCS, NDSS, ESORICS, ACSAC, RAID, NDSS, TIFS, TDSC）",
+    "crypto": "密码学（CRYPTO, EUROCRYPT, ASIACRYPT, TCC, PKC, FSE, CHES, Journal of Cryptology, Designs Codes and Cryptography (DCC)）",
     "general_sci": "综合科学（Nature, Nature Communications, Nature Machine Intelligence, PNAS, Science）",
 }
 
