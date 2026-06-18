@@ -12,7 +12,7 @@ import json
 from datetime import datetime
 
 from research_agent.tools.marker_tool import parse_pdf_high_quality, is_marker_available
-from research_agent.tools.gpu_utils import describe_device
+from research_agent.tools.gpu_utils import describe_device, pick_free_gpus
 from research_agent.agents.synthesizer import synthesize
 from research_agent.config import PDF_DIR, FULLTEXT_MAX_CHARS
 
@@ -53,8 +53,15 @@ def main():
         print(f"❌ {folder} 下没有 PDF")
         sys.exit(1)
 
+    # 单进程任务：绑到最空闲的 GPU（marker 解析用）
+    free_gpus = pick_free_gpus(1)
+    if free_gpus:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(free_gpus[0])
+
     print(f"📖 PDF 解析器：{'marker (高质量)' if is_marker_available() else 'PyMuPDF (快速)'}")
     print(f"💻 设备：{describe_device()}")
+    if free_gpus:
+        print(f"🎯 使用 GPU：{free_gpus[0]}")
     print(f"📄 找到 {len(pdfs)} 篇 PDF\n")
 
     papers = []

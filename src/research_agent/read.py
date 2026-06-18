@@ -26,7 +26,7 @@ from datetime import datetime
 
 from research_agent.tools.pdf_tool import download_pdf
 from research_agent.tools.marker_tool import parse_pdf_high_quality, is_marker_available
-from research_agent.tools.gpu_utils import recommended_workers, describe_device
+from research_agent.tools.gpu_utils import recommended_workers, describe_device, pick_free_gpus
 from research_agent.agents.deep_reader import deep_read
 from research_agent.config import PDF_DIR, PARALLEL_WORKERS
 
@@ -414,13 +414,19 @@ def main():
 
     total = len(unique_items)
     workers = recommended_workers(total, PARALLEL_WORKERS)
-    print(f"\n🚀 准备精读 {total} 篇（并行 worker：{workers}）\n")
+    # 挑出最空闲的 GPU（避开显存被占用的）
+    free_gpus = pick_free_gpus(workers) if workers >= 1 else []
+    if free_gpus:
+        print(f"\n🎯 使用 GPU：{free_gpus}")
+    print(f"🚀 准备精读 {total} 篇（并行 worker：{workers}）\n")
 
     succeeded: list[str] = []
     failed: list[tuple[str, str]] = []  # (title, reason)
 
     if workers <= 1:
-        # 串行
+        # 串行：先把进程绑定到最空闲的那张 GPU（避免 torch 默认用 GPU 0 撞已满显卡）
+        if free_gpus:
+            os.environ["CUDA_VISIBLE_DEVICES"] = str(free_gpus[0])
         for i, item in enumerate(unique_items, 1):
             title = item.get("title", "")[:75] if isinstance(item, dict) else str(item)
             print(f"\n[{i}/{total}] {title}")
@@ -443,7 +449,8 @@ def main():
         from concurrent.futures import ProcessPoolExecutor, as_completed
 
         ctx = mp.get_context("spawn")
-        tasks = [(item, i % workers, force) for i, item in enumerate(unique_items)]
+        # 把任务平均分到挑出来的空闲 GPU 上（轮转）
+        tasks = [(item, free_gpus[i % len(free_gpus)], force) for i, item in enumerate(unique_items)]
         # ProcessPoolExecutor 的 worker 不是 daemon，子进程可以再开子进程
         with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as pool:
             futures = [pool.submit(_parallel_worker, t) for t in tasks]

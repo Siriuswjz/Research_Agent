@@ -1,5 +1,44 @@
 """GPU 检测与并行 worker 数推断。无 torch 也能跑（返回 0）。"""
 import os
+import subprocess
+
+# 显存阈值：少于这么多 MB 视为"忙"，不分配任务
+MIN_FREE_MB = int(os.getenv("MIN_FREE_MB", "8000"))   # 默认 8GB
+
+
+def free_memory_per_gpu() -> list[int]:
+    """
+    返回每张物理 GPU 的空闲显存（MB）。失败返回空列表。
+    通过 nvidia-smi 实时查询，反映其他进程占用情况。
+    """
+    try:
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+            stderr=subprocess.DEVNULL, timeout=5,
+        ).decode().strip()
+        return [int(line) for line in out.splitlines() if line.strip()]
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError):
+        return []
+
+
+def pick_free_gpus(n_needed: int) -> list[int]:
+    """
+    挑出 n_needed 张最空闲的 GPU（按 free memory 降序），
+    过滤掉 free < MIN_FREE_MB 的。返回物理 GPU id 列表。
+    若 nvidia-smi 不可用，退化为 [0, 1, ..., n_needed-1]。
+    """
+    free = free_memory_per_gpu()
+    if not free:
+        # 无法查询，按顺序分配
+        return list(range(n_needed))
+
+    # 按 free 降序排
+    indexed = sorted(enumerate(free), key=lambda x: -x[1])
+    usable = [i for i, mb in indexed if mb >= MIN_FREE_MB]
+    if not usable:
+        # 所有 GPU 都忙，仍然返回最空闲的那张作为兜底（让 torch 报错而非默认 0 撞墙）
+        return [indexed[0][0]]
+    return usable[:n_needed]
 
 
 def gpu_count() -> int:
@@ -34,7 +73,14 @@ def recommended_workers(total_items: int, override: int | str = "auto") -> int:
     if isinstance(override, str) and override.isdigit():
         return max(1, min(int(override), total_items))
 
-    # auto
+    # auto：用 nvidia-smi 实测的可用 GPU 数（过滤掉显存不足的）
+    free = free_memory_per_gpu()
+    if free:
+        n_usable = sum(1 for mb in free if mb >= MIN_FREE_MB)
+        if n_usable >= 2 and total_items >= 2:
+            return min(n_usable, total_items)
+        return 1
+    # 查不到时退化到总卡数
     n_gpu = gpu_count()
     if n_gpu >= 2 and total_items >= 2:
         return min(n_gpu, total_items)
@@ -46,6 +92,11 @@ def describe_device() -> str:
     n = gpu_count()
     if n == 0:
         return "CPU"
-    if n == 1:
-        return "1 张 GPU（串行）"
-    return f"{n} 张 GPU（自动并行）"
+    free = free_memory_per_gpu()
+    if free:
+        usable = [i for i, mb in enumerate(free) if mb >= MIN_FREE_MB]
+        free_str = ", ".join(f"GPU{i}={mb}MB" for i, mb in enumerate(free))
+        if len(usable) < 2:
+            return f"{n} 张 GPU 中 {len(usable)} 张可用 [{free_str}] → 串行"
+        return f"{n} 张 GPU 中 {len(usable)} 张可用 [{free_str}] → 并行"
+    return f"{n} 张 GPU（nvidia-smi 查询失败，按顺序分配）"
