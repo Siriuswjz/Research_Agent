@@ -399,12 +399,17 @@ def main():
                 failed.append((title, "解析或精读失败"))
     else:
         # 多 GPU 并行（每个 worker 绑一张卡）
+        # marker / surya 内部也用 multiprocessing，所以 worker 不能是 daemon
         import multiprocessing as mp
-        # 用 spawn 避免 CUDA 在 fork 后状态错乱
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+
         ctx = mp.get_context("spawn")
         tasks = [(item, i % workers, force) for i, item in enumerate(unique_items)]
-        with ctx.Pool(workers) as pool:
-            for i, result in enumerate(pool.imap_unordered(_parallel_worker, tasks), 1):
+        # ProcessPoolExecutor 的 worker 不是 daemon，子进程可以再开子进程
+        with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as pool:
+            futures = [pool.submit(_parallel_worker, t) for t in tasks]
+            for i, future in enumerate(as_completed(futures), 1):
+                result = future.result()
                 status, title, reason, out = result
                 if status == "succeeded":
                     print(f"[{i}/{total}] ✅ {title}\n            → {out}")
