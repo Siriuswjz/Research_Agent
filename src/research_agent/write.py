@@ -53,14 +53,9 @@ def main():
         print(f"❌ {folder} 下没有 PDF")
         sys.exit(1)
 
-    # 单篇上限按总篇数动态分配，避免 prompt 太长
-    # DeepSeek 类模型 128K 上下文，留余量给 prompt + 输出
-    total_budget = 80_000
-    per_paper = min(FULLTEXT_MAX_CHARS, max(2000, total_budget // len(pdfs)))
-
     print(f"📖 PDF 解析器：{'marker (高质量)' if is_marker_available() else 'PyMuPDF (快速)'}")
     print(f"💻 设备：{describe_device()}")
-    print(f"📄 找到 {len(pdfs)} 篇 PDF（每篇最多取 {per_paper} 字符）\n")
+    print(f"📄 找到 {len(pdfs)} 篇 PDF\n")
 
     papers = []
     for i, path in enumerate(pdfs, 1):
@@ -73,7 +68,7 @@ def main():
         title = _extract_title(text, fname.replace(".pdf", ""))
         papers.append({
             "title": title,
-            "fulltext": text[:per_paper],
+            "fulltext": text[:FULLTEXT_MAX_CHARS],
             "source_file": path,
         })
 
