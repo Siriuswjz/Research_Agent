@@ -34,8 +34,17 @@ export DEEPSEEK_API_KEY="sk-你的key"
 
 ### 运行
 ```bash
-research-agent                          # 生成综述
-research-agent-read                     # 精读单篇（交互选择）
+research-agent                          # 快速综述（搜索 + Writer，500-1000 字）
+research-agent-read                     # 精读单篇 / 批量
+research-agent-write "我的研究问题"      # 详细综述（基于 pdfs/ 里筛选过的论文，3000-5000 字）
+```
+
+典型工作流：
+```bash
+research-agent                          # 第 1 步：快速综述，看大方向
+research-agent-read --latest            # 第 2 步：精读最近综述里的论文
+# 手动把不要的论文从 pdfs/ 删掉，留下核心参考文献
+research-agent-write "我的研究问题"      # 第 3 步：基于精选论文写详细综述（写论文初稿用）
 ```
 
 可选配置：`S2_API_KEY`（Semantic Scholar 提速）、`HTTP_PROXY`（代理）、`PARALLEL_WORKERS`（GPU 并行）。

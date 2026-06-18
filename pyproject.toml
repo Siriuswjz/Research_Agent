@@ -26,6 +26,7 @@ dev = ["pytest", "build", "twine"]
 [project.scripts]
 research-agent = "research_agent.main:main"
 research-agent-read = "research_agent.read:main"
+research-agent-write = "research_agent.write:main"
 
 [project.urls]
 Homepage = "https://github.com/Siriuswjz/Research_Agent"
