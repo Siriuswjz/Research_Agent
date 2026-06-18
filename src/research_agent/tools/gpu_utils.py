@@ -42,19 +42,18 @@ def pick_free_gpus(n_needed: int) -> list[int]:
 
 
 def gpu_count() -> int:
-    """返回可用 GPU 数。没装 torch 或无 CUDA 返回 0。"""
+    """返回可用 GPU 数。优先用 nvidia-smi（不触发 torch import）。"""
+    free = free_memory_per_gpu()
+    if free:
+        return len(free)
+    # nvidia-smi 不可用 → 退化到 torch（会触发 import）
     try:
         import torch
         if torch.cuda.is_available():
             return torch.cuda.device_count()
-    except ImportError:
-        pass
-    # 尝试 MPS（Apple Silicon）—— 算 1 张"卡"
-    try:
-        import torch
-        if torch.backends.mps.is_available():
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return 1
-    except (ImportError, AttributeError):
+    except ImportError:
         pass
     return 0
 

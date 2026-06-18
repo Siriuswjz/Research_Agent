@@ -53,7 +53,7 @@ def main():
         print(f"❌ {folder} 下没有 PDF")
         sys.exit(1)
 
-    # 单进程任务：绑到最空闲的 GPU（marker 解析用）
+    # 关键：在 describe_device / 任何 torch import 之前设 env
     free_gpus = pick_free_gpus(1)
     if free_gpus:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(free_gpus[0])

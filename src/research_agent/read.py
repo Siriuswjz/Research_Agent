@@ -378,7 +378,6 @@ def _parallel_worker(args):
 
 def main():
     print(f"📖 PDF 解析器：{'marker (高质量)' if is_marker_available() else 'PyMuPDF (快速)'}")
-    print(f"💻 设备：{describe_device()}")
     all_papers = _load_all_papers()
 
     args = sys.argv[1:]
@@ -416,17 +415,22 @@ def main():
     workers = recommended_workers(total, PARALLEL_WORKERS)
     # 挑出最空闲的 GPU（避开显存被占用的）
     free_gpus = pick_free_gpus(workers) if workers >= 1 else []
+
+    # 关键：串行模式下必须在 torch 被 import 前设 env（marker 加载会触发 torch）
+    # 并行模式下子进程自己在 worker 内设，父进程这里不动
+    if workers <= 1 and free_gpus:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(free_gpus[0])
+
+    print(f"💻 设备：{describe_device()}")
     if free_gpus:
-        print(f"\n🎯 使用 GPU：{free_gpus}")
+        print(f"🎯 使用 GPU：{free_gpus}")
     print(f"🚀 准备精读 {total} 篇（并行 worker：{workers}）\n")
 
     succeeded: list[str] = []
     failed: list[tuple[str, str]] = []  # (title, reason)
 
     if workers <= 1:
-        # 串行：先把进程绑定到最空闲的那张 GPU（避免 torch 默认用 GPU 0 撞已满显卡）
-        if free_gpus:
-            os.environ["CUDA_VISIBLE_DEVICES"] = str(free_gpus[0])
+        # 串行（env 已在 describe_device 之前设过）
         for i, item in enumerate(unique_items, 1):
             title = item.get("title", "")[:75] if isinstance(item, dict) else str(item)
             print(f"\n[{i}/{total}] {title}")
