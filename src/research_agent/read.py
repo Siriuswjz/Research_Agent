@@ -2,17 +2,19 @@
 精读论文：单篇或批量。
 
 用法：
-    python read.py                    # 交互模式：列出所有调研过的论文（跨综述合并去重）
-    python read.py 7                  # 全局编号
-    python read.py 1 3 5              # 批量：多个编号
-    python read.py 1-10               # 批量：范围
-    python read.py --top 5            # 批量：综述里被引前 5（最近一次综述）
-    python read.py --all              # 批量：全部（小心，可能 20+ 篇）
-    python read.py "vision transformer"  # 标题模糊匹配
-    python read.py 2301.12345         # arxiv ID
-    python read.py https://...        # PDF URL
-    python read.py ./paper.pdf        # 本地 PDF
-    可混合：python read.py 7 "vit" 2301.12345 ./x.pdf
+    research-agent-read                    # 交互列表（跨所有综述去重）
+    research-agent-read 7                  # 全局编号
+    research-agent-read 1 3 5              # 批量：多个编号
+    research-agent-read 1-10               # 批量：范围
+    research-agent-read --latest           # 最近一次综述里未精读的全部
+    research-agent-read --unread           # pdfs/ 里未精读的全部（含手动放入的）
+    research-agent-read --all              # pdfs/ + 所有综述里的全部论文，强制重读
+    research-agent-read "vision transformer"  # 标题模糊匹配
+    research-agent-read 2301.12345         # arxiv ID
+    research-agent-read https://...        # PDF URL
+    research-agent-read ./paper.pdf        # 本地 PDF
+    research-agent-read --force 7          # 强制重读指定的
+    可混合：research-agent-read 7 "vit" 2301.12345 ./x.pdf
 """
 import os
 import re
@@ -74,6 +76,33 @@ def _load_all_papers() -> list[dict]:
     return merged
 
 
+def _scan_all_local_pdfs() -> list[str]:
+    """扫 PDF_DIR 下所有 .pdf 路径，不过滤"""
+    if not os.path.isdir(PDF_DIR):
+        return []
+    return [
+        os.path.join(PDF_DIR, fname)
+        for fname in sorted(os.listdir(PDF_DIR))
+        if fname.lower().endswith(".pdf")
+    ]
+
+
+def _scan_unread_pdfs() -> list[str]:
+    """扫 PDF_DIR 下所有 .pdf，过滤掉 readings/_index.json 里已记录的（按内容 hash）"""
+    idx = _load_index()
+    indexed_hashes = {k for k in idx if k.startswith("sha256:")}
+    unread: list[str] = []
+    for path in _scan_all_local_pdfs():
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                h.update(chunk)
+        if f"sha256:{h.hexdigest()}" in indexed_hashes:
+            continue
+        unread.append(path)
+    return unread
+
+
 def _latest_papers() -> list[dict]:
     """只读最近一次综述的论文（用于 --top / --all）"""
     files = sorted(glob.glob("reports/*_papers.json"))
@@ -115,18 +144,21 @@ def parse_selectors(args: list[str], all_papers: list[dict]) -> list[dict | str]
     items: list[dict | str] = []
 
     for arg in args:
-        # --all
-        if arg == "--all":
+        # --unread：扫 pdfs/，加入所有未精读的 PDF
+        if arg == "--unread":
+            items.extend(_scan_unread_pdfs())
+            continue
+
+        # --latest：最近一次综述里所有论文（已读的会在 deep_read_one 里被跳过）
+        if arg == "--latest":
             items.extend(_latest_papers())
             continue
 
-        # --top N
-        if arg.startswith("--top"):
-            n = int(arg.split("=")[-1]) if "=" in arg else int(args[args.index(arg) + 1])
-            items.extend(_latest_papers()[:n])
+        # --all：pdfs/ 里全部 + 所有综述里的全部论文。强制重读由 main() 中的 force 处理
+        if arg == "--all":
+            items.extend(_scan_all_local_pdfs())
+            items.extend(all_papers)   # all_papers 已是跨综述去重的全集
             continue
-        if arg.isdigit() and len(args) > 1 and args[args.index(arg) - 1] == "--top":
-            continue  # 已被 --top 消费
 
         # 范围 "1-10"
         m = re.fullmatch(r"(\d+)-(\d+)", arg)
@@ -244,16 +276,21 @@ def resolve_to_pdf(item: dict | str) -> tuple[str | None, dict | None]:
 READINGS_INDEX = "readings/_index.json"
 
 
-def _paper_key(pdf_path: str, paper_meta: dict | None) -> str:
-    """稳定的论文标识：优先 URL，其次 PDF 文件内容 hash。"""
-    if paper_meta and paper_meta.get("url"):
-        return f"url:{paper_meta['url']}"
-    # 本地文件 / 没有 URL → 内容 hash
+def _file_sha256(pdf_path: str) -> str:
     h = hashlib.sha256()
     with open(pdf_path, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
-    return f"sha256:{h.hexdigest()}"
+    return h.hexdigest()
+
+
+def _paper_keys(pdf_path: str, paper_meta: dict | None) -> list[str]:
+    """同一篇可能在 index 里以多个 key 存在（URL + 内容 hash），保证任意入口都能识别。"""
+    keys: list[str] = []
+    if paper_meta and paper_meta.get("url"):
+        keys.append(f"url:{paper_meta['url']}")
+    keys.append(f"sha256:{_file_sha256(pdf_path)}")
+    return keys
 
 
 def _load_index() -> dict:
@@ -278,14 +315,16 @@ def deep_read_one(pdf_path: str, title: str, paper_meta: dict | None,
                   force: bool = False) -> str | None:
     """解析 + 精读 + 保存。返回精读报告路径。
     若已存在精读且 force=False，跳过并返回已有路径。"""
-    key = _paper_key(pdf_path, paper_meta)
+    keys = _paper_keys(pdf_path, paper_meta)
     idx = _load_index()
-    if not force and key in idx:
-        existing = idx[key]["reading_path"]
-        if os.path.exists(existing):
-            print(f"   ⏭  已精读过，跳过：{existing}")
-            print(f"      （加 --force 可强制重读）")
-            return existing
+    if not force:
+        for k in keys:
+            if k in idx:
+                existing = idx[k]["reading_path"]
+                if os.path.exists(existing):
+                    print(f"   ⏭  已精读过，跳过：{existing}")
+                    print(f"      （加 --force 可强制重读）")
+                    return existing
 
     print(f"   🧠 解析 PDF...")
     text = parse_pdf_high_quality(pdf_path)
@@ -305,12 +344,10 @@ def deep_read_one(pdf_path: str, title: str, paper_meta: dict | None,
             header += f"> 链接：{paper_meta.get('url', '')}\n"
         f.write(header + "\n" + report)
 
-    # 注册到索引
-    idx[key] = {
-        "reading_path": out_path,
-        "title": title,
-        "date": timestamp,
-    }
+    # 注册到索引：同一篇用 URL key + SHA256 key 双写，任何入口都能识别
+    entry = {"reading_path": out_path, "title": title, "date": timestamp}
+    for k in keys:
+        idx[k] = entry
     _save_index(idx)
 
     return out_path
@@ -324,6 +361,8 @@ def _parallel_worker(args):
     # 子进程要重新 import（避免父进程的 torch 已初始化导致绑卡无效）
     from research_agent.read import resolve_to_pdf, deep_read_one  # noqa
     title = item.get("title", "")[:75] if isinstance(item, dict) else str(item)
+    pid = os.getpid()
+    print(f"   🟢 [PID {pid}, GPU {gpu_id}] 开始：{title[:60]}", flush=True)
     try:
         pdf_path, paper_meta = resolve_to_pdf(item)
         if pdf_path is None:
@@ -343,8 +382,8 @@ def main():
     all_papers = _load_all_papers()
 
     args = sys.argv[1:]
-    force = "--force" in args
-    if force:
+    force = "--force" in args or "--all" in args   # --all 强制重读
+    if "--force" in args:
         args = [a for a in args if a != "--force"]
 
     # 无参数 → 交互列表
