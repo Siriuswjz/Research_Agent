@@ -18,7 +18,7 @@ DEEPSEEK_MODEL = "deepseek-ai/DeepSeek-V4-Pro"
 MAX_SEARCH_RESULTS = 5      # 单个 query、单个源的检索上限
 MAX_TOTAL_PAPERS = 20       # 喂给 Writer 的论文总量上限（按引用数排序后截断）
 MIN_PAPERS = 8              # 少于这个数量就触发 Planner 补搜
-MAX_TOKENS = 4096
+MAX_TOKENS = 8192
 
 # 缓存
 CACHE_DIR = ".cache"

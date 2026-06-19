@@ -1,7 +1,10 @@
 from research_agent.agents.llm import chat
+from research_agent.references.writing_guide import WRITING_GUIDE
 
 SYSTEM = """你是科研综述撰写专家。用户已经从大量文献中**筛选**出一批核心参考文献，
 请基于这批论文撰写一份详细的中文综述，作为论文 Related Work / 引言 的成稿初版。
+
+""" + WRITING_GUIDE + """
 
 # 报告结构
 

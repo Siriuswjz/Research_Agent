@@ -1,4 +1,5 @@
 from research_agent.agents.llm import chat
+from research_agent.references.writing_guide import WRITING_GUIDE
 
 SYSTEM = """你是一个科研综述撰写专家。
 根据提供的论文列表，生成一份结构化的中文综述，包含：
@@ -6,6 +7,8 @@ SYSTEM = """你是一个科研综述撰写专家。
 2. 主要方法分类及代表工作（带引用编号 [n]）
 3. 现有方法的局限性 / Research Gap
 4. 参考文献列表（保留链接）
+
+""" + WRITING_GUIDE + """
 
 引用策略：
 - 优先引用被引次数高的工作作为该方向的"代表性研究"

@@ -4,8 +4,11 @@
 用法：
     research-agent-write "我的研究问题"
     research-agent-write "我的研究问题" path/to/folder/
-    research-agent-write "我的研究问题" --skip-critic   # 跳过 Critic 审查
+    research-agent-write "我的研究问题" --skip-critic   # 跳过 Critic 内容审查
+    research-agent-write "我的研究问题" --skip-polish   # 跳过 Polish 表达润色
     research-agent-write "我的研究问题" --no-cache      # 强制重新解析所有 PDF
+
+流程：解析 → Synthesize 初稿 → Critic 审内容 → Polish 润表达 → 终稿
 """
 import os
 import re
@@ -18,6 +21,7 @@ from research_agent.tools.marker_tool import parse_pdf_high_quality, is_marker_a
 from research_agent.tools.gpu_utils import describe_device, pick_free_gpus
 from research_agent.agents.synthesizer import synthesize
 from research_agent.agents.critic import review, revise
+from research_agent.agents.polish import polish
 from research_agent.config import PDF_DIR, FULLTEXT_MAX_CHARS, CACHE_DIR
 
 
@@ -111,10 +115,10 @@ def _synthesize_phase(question: str, papers: list[dict], cache_key: str, use_cac
 
 
 def _critic_phase(papers: list[dict], draft: str, cache_key: str, use_cache: bool) -> str:
-    """Critic 审查 + 必要时 Revise"""
-    cache_path = os.path.join(CURATED_CACHE_DIR, f"{cache_key}_final.md")
+    """Critic 审查内容（事实/引用/结构）+ 必要时 Revise"""
+    cache_path = os.path.join(CURATED_CACHE_DIR, f"{cache_key}_reviewed.md")
     if use_cache and os.path.exists(cache_path):
-        print(f"♻️  命中终稿缓存：{cache_path}")
+        print(f"♻️  命中审查稿缓存：{cache_path}")
         with open(cache_path, encoding="utf-8") as f:
             return f.read()
 
@@ -123,12 +127,27 @@ def _critic_phase(papers: list[dict], draft: str, cache_key: str, use_cache: boo
     issues = review(formatted, draft)
     if issues.strip().upper().startswith("PASS"):
         print("   ✅ 通过")
-        final = draft
+        reviewed = draft
     else:
         print(f"   发现问题：\n{issues}")
         print("\n✍️  Synthesizer：根据 Critic 反馈修订...")
-        final = revise(formatted, draft, issues)
+        reviewed = revise(formatted, draft, issues)
 
+    with open(cache_path, "w", encoding="utf-8") as f:
+        f.write(reviewed)
+    return reviewed
+
+
+def _polish_phase(draft: str, cache_key: str, use_cache: bool) -> str:
+    """Polish 润色表达（段落流/claim-first/技术化对比），不改事实"""
+    cache_path = os.path.join(CURATED_CACHE_DIR, f"{cache_key}_final.md")
+    if use_cache and os.path.exists(cache_path):
+        print(f"♻️  命中终稿缓存：{cache_path}")
+        with open(cache_path, encoding="utf-8") as f:
+            return f.read()
+
+    print("\n✨ Polish：按 Nature 写作准则润色表达...")
+    final = polish(draft)
     with open(cache_path, "w", encoding="utf-8") as f:
         f.write(final)
     return final
@@ -137,12 +156,13 @@ def _critic_phase(papers: list[dict], draft: str, cache_key: str, use_cache: boo
 def main():
     args = sys.argv[1:]
     if not args:
-        print('用法：research-agent-write "研究问题" [PDF目录] [--skip-critic] [--no-cache]')
+        print('用法：research-agent-write "研究问题" [PDF目录] [--skip-critic] [--skip-polish] [--no-cache]')
         sys.exit(1)
 
     skip_critic = "--skip-critic" in args
+    skip_polish = "--skip-polish" in args
     use_cache = "--no-cache" not in args
-    args = [a for a in args if a not in ("--skip-critic", "--no-cache")]
+    args = [a for a in args if a not in ("--skip-critic", "--skip-polish", "--no-cache")]
 
     question = args[0]
     folder = args[1] if len(args) > 1 else PDF_DIR
@@ -183,11 +203,11 @@ def main():
     print(f"\n✍️  Synthesizer 撰写详细综述（{len(papers)} 篇 → 目标 3000-5000 字）...")
     draft = _synthesize_phase(question, papers, cache_key, use_cache)
 
-    # === Phase 3: Critic ===
-    if skip_critic:
-        final = draft
-    else:
-        final = _critic_phase(papers, draft, cache_key, use_cache)
+    # === Phase 3: Critic（内容审查） ===
+    reviewed = draft if skip_critic else _critic_phase(papers, draft, cache_key, use_cache)
+
+    # === Phase 4: Polish（表达润色） ===
+    final = reviewed if skip_polish else _polish_phase(reviewed, cache_key, use_cache)
 
     # === 输出 ===
     os.makedirs("reports", exist_ok=True)
