@@ -37,6 +37,7 @@ export DEEPSEEK_API_KEY="sk-你的key"
 research-agent                          # 快速综述（搜索 + Writer，500-1000 字）
 research-agent-read                     # 精读单篇 / 批量
 research-agent-write "我的研究问题"      # 详细综述（基于 pdfs/ 里筛选过的论文，3000-5000 字）
+                                          # 支持 --skip-critic / --no-cache
 ```
 
 典型工作流：
